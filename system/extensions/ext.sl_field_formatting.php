@@ -2,7 +2,7 @@
 
 /**
  * @package SL Field Formatting
- * @version 1.0.1
+ * @version 1.0.2
  * @author Stephen Lewis (http://www.experienceinternet.co.uk/)
  * @copyright Copyright (c) 2009, Stephen Lewis
  * @license http://creativecommons.org/licenses/by-sa/3.0/ Creative Commons Attribution-Share Alike 3.0 Unported
@@ -16,7 +16,7 @@ if ( ! defined('EXT'))
 
 if ( ! defined('SL_FF_version'))
 {
-	define('SL_FF_version', '1.0.1');
+	define('SL_FF_version', '1.0.2');
 	define('SL_FF_docs_url', 'http://www.experienceinternet.co.uk/resources/details/sl-field-formatting/');
 	define('SL_FF_name', 'SL Field Formatting');
 }
@@ -60,6 +60,12 @@ class Sl_field_formatting {
 	 */
    var $docs_url = SL_FF_docs_url;
    
+  /**
+   * List of available formatting plugins.
+   * @var array
+   */
+  var $plugins = array();
+   
 
 	/**
 	 * PHP4 constructor.
@@ -79,6 +85,12 @@ class Sl_field_formatting {
 	{		
 		// Retrieve the settings from the database.
 		$this->_refresh_settings();
+		
+		/**
+		 * Note: would ideally like to call the _build_plugins_list method
+		 * once, from the constructor, but it throws an error. Not entirely
+		 * sure why, and it's not important enough to spend time on.
+		 */
 	}
 	
 	
@@ -133,6 +145,178 @@ class Sl_field_formatting {
 	
 	
 	/**
+	 * Updates the field formatting options for newly-created fields.
+	 */
+	function show_full_control_panel_start()
+	{	
+	  global $IN, $PREFS, $DB;
+	  
+	  /**
+     * We have certain conditions for letting you in:
+     * 1. We're only interested in the update_weblog_fields page.
+     * 2. We're only interested in newly-created fields.
+     * 3. We need to have some chosen formatting options.
+     */
+      
+    if (($IN->GBL('P', 'GET') === 'update_weblog_fields') &&
+      (isset($_POST['field_id']) === TRUE) &&
+      ($IN->GBL('field_id', 'POST') == '') &&
+      ($this->settings['plugins'] != FALSE))
+    {
+	  
+  	  /**
+  	   * Retrieve the ID of the field that was just created. There may be a small
+  	   * chance that multiple fields, created simultaneously by different admins
+  	   * could cause problems here, but it seems unlikely.
+  	   *
+  	   * Plus, even if that does happen, the end result isn't catastrophic. Oh yes,
+  	   * and there's also the fact that we have no other way of accomplishing this.
+  	   */
+	   
+  	  $new_field = $DB->query("SELECT `field_id` FROM `exp_weblog_fields` ORDER BY `field_id` DESC LIMIT 1");
+  	  if ($new_field->num_rows !== 1 OR $new_field->row['field_id'] == '')
+  	  {
+  	    return;
+  	  }
+	  
+  	  // Make a note of the field ID.
+  	  $field_id = $new_field->row['field_id'];
+	  
+  	  // Delete all the existing formatting options for this field.
+  	  $sql[] = "DELETE FROM `exp_field_formatting` WHERE `field_id` = '{$field_id}'";
+	  
+  	  // Add the default formatting options.
+  	  $f_sql = 'INSERT INTO `' . $PREFS->ini('db_prefix') . '_field_formatting` (`field_id`, `field_fmt`) VALUES';
+	  
+  	  foreach ($this->settings['plugins'] AS $class => $data)
+  	  {
+  	    $f_sql .= "({$field_id},'{$class}'),";
+  	  }
+
+    	$f_sql = rtrim($f_sql, ',');
+    	$sql[] = $f_sql;
+  	
+    	// Run our plethora of queries. Jefe, what is a plethora?
+    	foreach ($sql AS $query)
+    	{
+    	  $DB->query($query);
+    	}
+  	}
+	}
+
+
+  /**
+   * Rewrites the field formatting drop-down for new custom fieldtype page.
+   * @param   array   $field_data     The data about this field from the database.
+   * @param   string  $content        The current content of the format cell.
+   * @return  string  The modified content of the format cell.
+   */
+  function publish_admin_edit_field_format($field_data, $content)
+  {
+    global $DB, $IN, $DSP;
+    
+    // We're only interested in new custom fields. There's also no point us
+    // being here if no settings have been saved for the extension.
+    if ($IN->GBL('field_id') OR ! isset($this->settings['plugins']) OR count($this->settings['plugins']) == 0)
+    {
+      return $content;
+    }
+    
+    /**
+     * TRICKY:
+     * EE hard-codes the available field formatting types when it creates a new field. This means
+     * we can change the field formatting drop-down (which we do, below), but the default values
+     * still get written to the exp_field_formatting table for the new field.
+     *
+     * Bad EE.
+     *
+     * We get around this problem by checking whether a new field has just been created (i.e. there
+     * is no field_id) in the show_full_control_panel_start method (above).
+     */
+     
+    $html = '';
+    
+    // Build the plugins list, if required.
+    if ( ! $this->plugins)
+		{
+		  $this->_build_plugins_list(); 
+		}
+    
+    // Loop through all the formatting options, adding those that have been selected
+    // to our options list.    
+    foreach ($this->plugins AS $p)
+    {      
+      if (isset($this->settings['plugins'][$p['class']]))
+      {
+        $html .= '<option value="' . $p['class'] . '">' . $p['name'] . '</option>';
+      }
+    }
+
+    // Replace the contents of the drop-down list.
+    $pattern = '/(<select.*?>)(.*?)(<\/select>)/is';
+    $new_content = "$1" . $html . "$3";
+    $content = preg_replace($pattern, $new_content, $content);
+
+    return $content;
+  }
+  
+  
+  /**
+   * Builds a list of all the plugins in the plugins folder.
+   * @access  private
+   */
+  function _build_plugins_list()
+  {
+    global $LANG;
+    
+    $LANG->fetch_language_file(strtolower(get_class($this)));
+    
+    /**
+	   * We fake the default types. Not too happy about doing it this way,
+	   * but from what I can tell, these are hard-coded in the core files
+	   * anyway...
+	   */
+	   
+	  $plugins = array(
+	    array('class' => 'none', 'name' => $LANG->line('formatting_none')),
+	    array('class' => 'br', 'name' => $LANG->line('formatting_br')),
+	    array('class' => 'xhtml', 'name' => $LANG->line('formatting_xhtml'))
+	    );
+	  
+	  if ($directory_handle = @opendir(PATH_PI))
+	  { 
+	    $pattern = '/^pi\.([\w_]+)\\' . EXT . '$/';	    
+	    while (($file = readdir($directory_handle)) !== FALSE)
+	    {     
+	      if (preg_match($pattern, $file, $matches))
+	      {	        
+	        if ( ! @include_once(PATH_PI . $file))
+	        {
+	          continue;
+	        }
+	        
+	        if (isset($plugin_info))
+	        {
+	          // Retrieve the plug information from the $plug_info array
+  	        // declared in the plugin file.	        
+  	        $info = array_unique($plugin_info);
+
+  	        $plugins[] = array(
+  	          'class' => $matches[1],
+  	          'name'  => isset($info['pi_name']) ? $info['pi_name'] : ''
+  	        );
+	        }
+	      }
+	    }
+	    
+	    closedir($directory_handle);
+	  }
+	  
+	  $this->plugins = $plugins;
+  }
+	
+	
+	/**
 	 * Builds the breadcrumbs part of the settings form.
 	 * @access	private
 	 * @return  string    The "Breadcrumbs" HTML.
@@ -164,40 +348,6 @@ class Sl_field_formatting {
 	{
 	  global $DSP, $LANG;
 	  
-	  /**
-	   * We fake the default types. Not too happy about doing it this way,
-	   * but from what I can tell, these are hard-coded in the core files
-	   * anyway...
-	   */
-	   
-	  $plugins = array(
-	    array('class' => 'none', 'name' => $LANG->line('formatting_none')),
-	    array('class' => 'br', 'name' => $LANG->line('formatting_br')),
-	    array('class' => 'xhtml', 'name' => $LANG->line('formatting_xhtml'))
-	    );
-	  
-	  if ($directory_handle = @opendir(PATH_PI))
-	  {
-	    $pattern = '/^pi\.([\w_]+)\\' . EXT . '$/';	    
-	    while (($file = readdir($directory_handle)) !== FALSE)
-	    {    
-	      if (preg_match($pattern, $file, $matches))
-	      {
-	        if ( ! @include_once(PATH_PI . $file))
-	        {
-	          continue;
-	        }
-	        
-	        $plugins[] = array(
-	          'class' => $matches[1],
-	          'name'  => $plugin_info['pi_name']
-	        );
-	      }
-	    }
-	    
-	    closedir($directory_handle);
-	  }
-	  
 	  // Output all the available plugins.	  
 	  $r = $DSP->table_open(
 			array(
@@ -221,7 +371,13 @@ class Sl_field_formatting {
 		
 		$count = 1;
 		
-		foreach ($plugins AS $p)
+		// Build the plugins list, if required.
+		if ( ! $this->plugins)
+		{
+		  $this->_build_plugins_list(); 
+		}
+		
+		foreach ($this->plugins AS $p)
 		{		  
 		  $td_class = ($count++ % 2) ? 'tableCellOne' : 'tableCellTwo';		  
 		  $checked = isset($this->settings['plugins'][$p['class']]) ? 'y' : 'n';
@@ -461,8 +617,10 @@ class Sl_field_formatting {
 		global $DB;
 		
 		$hooks = array(
-			'lg_addon_update_register_source'		=> 'lg_addon_update_register_source',
-			'lg_addon_update_register_addon'		=> 'lg_addon_update_register_addon'
+			'lg_addon_update_register_source'	=> 'lg_addon_update_register_source',
+			'lg_addon_update_register_addon'	=> 'lg_addon_update_register_addon',
+			'publish_admin_edit_field_format' => 'publish_admin_edit_field_format',
+			'show_full_control_panel_start'   => 'show_full_control_panel_start'
 			);
 			
 		foreach ($hooks AS $hook => $method)
@@ -506,6 +664,31 @@ class Sl_field_formatting {
 			$DB->query("UPDATE exp_extensions
 				SET version = '" . $DB->escape_str($this->version) . "' 
 				WHERE class = '" . get_class($this) . "'");
+		}
+		
+		if ($current < '1.0.2')
+		{
+		  $DB->query($DB->insert_string('exp_extensions', array(
+					'extension_id' => '',
+					'class'        => get_class($this),
+					'method'       => 'publish_admin_edit_field_format',
+					'hook'         => 'publish_admin_edit_field_format',
+					'settings'     => '',
+					'priority'     => 10,
+					'version'      => $this->version,
+					'enabled'      => 'y'
+					)));
+					
+		  $DB->query($DB->insert_string('exp_extensions', array(
+					'extension_id' => '',
+					'class'        => get_class($this),
+					'method'       => 'show_full_control_panel_start',
+					'hook'         => 'show_full_control_panel_start',
+					'settings'     => '',
+					'priority'     => 10,
+					'version'      => $this->version,
+					'enabled'      => 'y'
+					)));
 		}
 	}
 
