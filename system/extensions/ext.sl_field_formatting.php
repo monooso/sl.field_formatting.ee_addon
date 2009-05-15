@@ -2,7 +2,7 @@
 
 /**
  * @package SL Field Formatting
- * @version 1.0.0
+ * @version 1.0.1
  * @author Stephen Lewis (http://www.experienceinternet.co.uk/)
  * @copyright Copyright (c) 2009, Stephen Lewis
  * @license http://creativecommons.org/licenses/by-sa/3.0/ Creative Commons Attribution-Share Alike 3.0 Unported
@@ -16,7 +16,7 @@ if ( ! defined('EXT'))
 
 if ( ! defined('SL_FF_version'))
 {
-	define('SL_FF_version', '1.0.0');
+	define('SL_FF_version', '1.0.1');
 	define('SL_FF_docs_url', 'http://www.experienceinternet.co.uk/resources/details/sl-field-formatting/');
 	define('SL_FF_name', 'SL Field Formatting');
 }
@@ -171,9 +171,9 @@ class Sl_field_formatting {
 	   */
 	   
 	  $plugins = array(
-	    array('class' => 'none', 'info' => array('pi_name' => $LANG->line('formatting_none'))),
-	    array('class' => 'br', 'info' => array('pi_name' => $LANG->line('formatting_br'))),
-	    array('class' => 'xhtml', 'info' => array('pi_name' => $LANG->line('formatting_xhtml')))
+	    array('class' => 'none', 'name' => $LANG->line('formatting_none')),
+	    array('class' => 'br', 'name' => $LANG->line('formatting_br')),
+	    array('class' => 'xhtml', 'name' => $LANG->line('formatting_xhtml'))
 	    );
 	  
 	  if ($directory_handle = @opendir(PATH_PI))
@@ -190,7 +190,7 @@ class Sl_field_formatting {
 	        
 	        $plugins[] = array(
 	          'class' => $matches[1],
-	          'info'  => array_unique($plugin_info)
+	          'name'  => $plugin_info['pi_name']
 	        );
 	      }
 	    }
@@ -229,7 +229,7 @@ class Sl_field_formatting {
 		  $r .= $DSP->tr();
 		  $r .= $DSP->td($td_class);
 		  $r .= $DSP->input_checkbox('plugin_' . $p['class'], $p['class'], $checked, 'id="plugin_' . $p['class'] . '"');
-		  $r .= '<label class="defaultBold" for="plugin_' . $p['class'] . '">' . $p['info']['pi_name'] . '</label>';
+		  $r .= '<label class="defaultBold" for="plugin_' . $p['class'] . '">' . $p['name'] . '</label>';
 		  $r .= $DSP->td_c();
 
   		$r .= $DSP->tr_c();
