@@ -46,7 +46,7 @@ class Sl_field_formatting {
 	 * Extension description.
 	 * @var string
 	 */
-   var $description = 'Specify the default field formatting options for your custom fields.';
+   var $description = 'Pain-free customisation of the default field formatting options.';
 
 	/**
 	 * If $settings_exist = 'y', the settings page will be displayed in EE admin.
